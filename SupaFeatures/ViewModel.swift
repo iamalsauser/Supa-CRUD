@@ -1,5 +1,3 @@
-
-
 import Foundation
 import Supabase
 
@@ -11,8 +9,8 @@ enum AuthAction: String, CaseIterable {
     case signUp = "Sign Up"
     case signIn = "Sign In"
 }
-@MainActor
 
+@MainActor
 final class ViewModel: ObservableObject {
     
     @Published var isAuthenticated = false
@@ -37,36 +35,46 @@ final class ViewModel: ObservableObject {
             .from(Table.features)
             .insert(values: feature)
             .execute()
+        
+        // Fetch features again after adding a new one
+        try await fetchFeatureRequests()
     }
     
     func fetchFeatureRequests() async throws {
-        let features:[Feature]=try await supabase.database
+        let user = try await supabase.auth.session.user
+        
+        let features: [Feature] = try await supabase.database
             .from(Table.features)
             .select()
-            .order(column: "created_at",ascending: false)
+            .eq(column: "user_id", value: user.id) // Filter by the authenticated user's ID
+            .order(column: "created_at", ascending: false)
             .execute()
             .value
+        
         DispatchQueue.main.async {
-            self.features=features
+            self.features = features
         }
     }
     
     func update(_ feature: Feature, with text: String) async {
-        guard let id = feature.id else{
-            print("cannot update feature\(feature.id)")
+        guard let id = feature.id else {
+            print("Cannot update feature \(feature.id)")
             return
         }
         var toUpdate = feature
-        toUpdate.text=text
+        toUpdate.text = text
         
-        do{
+        do {
             try await supabase.database
                 .from(Table.features)
                 .update(values: toUpdate)
                 .eq(column: "id", value: id)
                 .execute()
-        }catch{
-            print("error: \(error)")
+            
+            // Fetch features again after updating
+            try await fetchFeatureRequests()
+        } catch {
+            print("Error: \(error)")
         }
     }
     
@@ -76,30 +84,43 @@ final class ViewModel: ObservableObject {
             .delete()
             .eq(column: "id", value: id)
             .execute()
+        
+        // Fetch features again after deleting
+        try await fetchFeatureRequests()
     }
     
     // MARK: - Authentication
     
     func signUp() async throws {
-        let response=try await supabase.auth.signUp(email: email, password: password)
+        let response = try await supabase.auth.signUp(email: email, password: password)
+        
+        // Fetch features after signing up
+        try await fetchFeatureRequests()
     }
     
     func signIn() async throws {
-        let session=try await supabase.auth.signIn(email: email, password: password)
+        let session = try await supabase.auth.signIn(email: email, password: password)
+        
+        // Fetch features after signing in
+        try await fetchFeatureRequests()
     }
     
     func isUserAuthenticated() async {
-        do{
-            _=try await supabase.auth.session.user
-            isAuthenticated=true
-        }catch{
-            isAuthenticated=false
+        do {
+            _ = try await supabase.auth.session.user
+            isAuthenticated = true
+            
+            // Fetch features if the user is authenticated
+            try await fetchFeatureRequests()
+        } catch {
+            isAuthenticated = false
         }
     }
     
     func signOut() async throws {
         try await supabase.auth.signOut()
-        isAuthenticated=false
+        isAuthenticated = false
+        features = [] // Clear the features when signing out
     }
     
     func authorize() async throws {
